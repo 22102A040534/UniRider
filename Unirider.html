@@ -1,0 +1,315 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>UniRider Demo (Student / Driver)</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 18px; background:#f6f8fa; }
+    .box { background:#fff; padding:14px; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.05); margin-bottom:12px; }
+    button { padding:8px 12px; border-radius:6px; border: none; background:#2b7cff; color:white; cursor:pointer; }
+    .danger { background:#ff4d4f; }
+    .secondary { background:#888; }
+    .list-item { padding:8px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center; }
+    .small { font-size:13px; color:#555; }
+  </style>
+</head>
+<body>
+  <h1>UniRider Demo — Student & Driver</h1>
+  <div class="box">
+    <label>Mode:
+      <select id="modeSelect">
+        <option value="student">Student</option>
+        <option value="driver">Driver</option>
+        <option value="admin">Admin (simulate)</option>
+      </select>
+    </label>
+  </div>
+
+  <div id="studentUI" class="box" style="display:none;">
+    <h2>Student</h2>
+    <div>
+      <label>Your name: <input id="studentName" placeholder="e.g., Aria"></label>
+    </div>
+    <div style="margin-top:8px;">
+      <label>Destination:
+        <select id="destSelect">
+          <option value="">Choose</option>
+          <option value="tirupati">Tirupati (18 km)</option>
+          <option value="railway">Railway Station (8 km)</option>
+          <option value="mall">Mall (4 km)</option>
+          <option value="movie">Movie Hall (6 km)</option>
+        </select>
+      </label>
+    </div>
+    <div style="margin-top:8px;">
+      <label><input type="checkbox" id="poolCheck" checked> Join pool (save money by sharing)</label>
+    </div>
+    <div style="margin-top:12px;">
+      <button id="bookBtn">Book Now</button>
+      <button id="myRidesBtn" class="secondary">My Rides</button>
+    </div>
+    <div id="studentMsg" class="small" style="margin-top:10px;"></div>
+  </div>
+
+  <div id="driverUI" class="box" style="display:none;">
+    <h2>Driver</h2>
+    <div>
+      <label>Your name: <input id="driverName" placeholder="e.g., Ravi"></label>
+      <button id="toggleOnlineBtn" style="margin-left:10px;">Go Online</button>
+    </div>
+    <div style="margin-top:8px;">
+      <strong>Pending bookings:</strong>
+      <div id="pendingList"></div>
+    </div>
+    <div style="margin-top:8px;">
+      <strong>Matched / Ongoing:</strong>
+      <div id="matchedList"></div>
+    </div>
+  </div>
+
+  <div id="adminUI" class="box" style="display:none;">
+    <h2>Admin / Simulation</h2>
+    <button id="simulateRush" class="danger">Simulate Rush (create 8 bookings)</button>
+    <button id="simulateRain" style="margin-left:8px;">Simulate Rain (create 4 bookings)</button>
+    <div style="margin-top:10px;"><small>Use this to show demand spikes to judges.</small></div>
+    <div style="margin-top:12px;">
+      <strong>Alerts:</strong>
+      <div id="alertsList"></div>
+    </div>
+  </div>
+
+  <div class="box">
+    <h3>How it works (simple)</h3>
+    <ol class="small">
+      <li>Student clicks Book → booking saved online.</li>
+      <li>If another student books same destination within 5 minutes, they are pooled.</li>
+      <li>Driver sees pending bookings and accepts → booking becomes matched.</li>
+    </ol>
+  </div>
+
+  <script type="module">
+  // Import the functions you need from the SDKs you need
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
+  import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-analytics.js";
+  // TODO: Add SDKs for Firebase products that you want to use
+  // https://firebase.google.com/docs/web/setup#available-libraries
+
+  // Your web app's Firebase configuration
+  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+  const firebaseConfig = {
+    apiKey: "AIzaSyBPgFAvvgYWnDNk11kzpJ-tOk_xlOrBG8I",
+    authDomain: "unirider-70d80.firebaseapp.com",
+    databaseURL: "https://unirider-70d80-default-rtdb.firebaseio.com",
+    projectId: "unirider-70d80",
+    storageBucket: "unirider-70d80.firebasestorage.app",
+    messagingSenderId: "1047983380565",
+    appId: "1:1047983380565:web:b65c90acfab35c98971cdc",
+    measurementId: "G-GXLQ2WF6E9"
+  };
+
+    // ----------------------------------------------------
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    // DISTANCES preset (km)
+    const destInfo = {
+      tirupati: {name:'Tirupati', km:18},
+      railway: {name:'Railway Station', km:8},
+      mall: {name:'Mall', km:4},
+      movie: {name:'Movie Hall', km:6},
+    };
+
+    // UI refs
+    const modeSelect = document.getElementById('modeSelect');
+    const studentUI = document.getElementById('studentUI');
+    const driverUI = document.getElementById('driverUI');
+    const adminUI = document.getElementById('adminUI');
+
+    modeSelect.addEventListener('change', ()=> {
+      const m = modeSelect.value;
+      studentUI.style.display = m==='student' ? 'block':'none';
+      driverUI.style.display = m==='driver' ? 'block':'none';
+      adminUI.style.display = m==='admin' ? 'block':'none';
+    });
+    modeSelect.value = 'student';
+    modeSelect.dispatchEvent(new Event('change'));
+
+    // Student actions
+    document.getElementById('bookBtn').onclick = async function(){
+      const name = document.getElementById('studentName').value || 'Student';
+      const destKey = document.getElementById('destSelect').value;
+      const joinPool = document.getElementById('poolCheck').checked;
+      if(!destKey){ alert('Choose destination'); return; }
+      const dest = destInfo[destKey];
+      // calculate base fare simple
+      const base = 40, perKm = 8;
+      const dist = dest.km;
+      const fare = base + perKm * dist;
+      // create booking
+      const newBookingRef = db.ref('bookings').push();
+      const booking = {
+        id: newBookingRef.key,
+        studentNames: [name],
+        destKey,
+        destName: dest.name,
+        km: dist,
+        pooling: joinPool,
+        createdAt: Date.now(),
+        status: 'pending',
+        fareTotal: fare,
+        poolSize: 1
+      };
+      await newBookingRef.set(booking);
+      document.getElementById('studentMsg').innerText = `Booked for ${dest.name}. Waiting for pooling / driver.`;
+      // try to trigger pooling: look for other pending with same dest within 5 minutes
+      tryPooling(destKey);
+    };
+
+    // try to merge pending bookings for pooling
+    async function tryPooling(destKey){
+      const now = Date.now();
+      const fiveMinAgo = now - 5*60*1000;
+      const snap = await db.ref('bookings').orderByChild('destKey').equalTo(destKey).once('value');
+      const list = [];
+      snap.forEach(child=>{
+        const b = child.val();
+        if(b.status === 'pending' && b.createdAt >= fiveMinAgo) list.push({key: child.key, val: b});
+      });
+      if(list.length >= 2){
+        // merge all pending into first booking
+        const main = list[0];
+        const others = list.slice(1);
+        const allNames = main.val.studentNames.slice();
+        let poolSize = main.val.poolSize || 1;
+        for(const o of others){
+          for(const n of o.val.studentNames) allNames.push(n);
+          poolSize += (o.val.poolSize || 1);
+        }
+        const totalFare = main.val.fareTotal; // keep fare as per one ride (we split)
+        const farePerStudent = Math.round(totalFare / allNames.length);
+        // update main
+        await db.ref('bookings/' + main.key).update({
+          studentNames: allNames,
+          poolSize: allNames.length,
+          farePerStudent,
+          pooling: true
+        });
+        // remove other bookings
+        for(const o of others){
+          await db.ref('bookings/' + o.key).remove();
+        }
+        console.log('Pooled booking created:', allNames);
+      }
+    }
+
+    // Driver UI logic
+    let driverOnline = false;
+    const pendingList = document.getElementById('pendingList');
+    const matchedList = document.getElementById('matchedList');
+    document.getElementById('toggleOnlineBtn').onclick = function(){
+      driverOnline = !driverOnline;
+      this.innerText = driverOnline ? 'Go Offline' : 'Go Online';
+    };
+
+    // listen for pending bookings live
+    db.ref('bookings').on('value', (snap)=>{
+      pendingList.innerHTML = '';
+      matchedList.innerHTML = '';
+      snap.forEach(child=>{
+        const b = child.val();
+        const key = child.key;
+        if(b.status === 'pending'){
+          const div = document.createElement('div');
+          div.className = 'list-item';
+          const left = document.createElement('div');
+          left.innerHTML = `<strong>${b.destName}</strong><div class="small">Students: ${b.studentNames.join(', ')} | Fare est: ₹${b.fareTotal} | Pool: ${b.pooling? 'Yes' : 'No'}</div>`;
+          const right = document.createElement('div');
+          const acceptBtn = document.createElement('button');
+          acceptBtn.innerText = 'Accept';
+          acceptBtn.onclick = async ()=> {
+            if(!driverOnline){ alert('Go online first'); return; }
+            await db.ref('bookings/' + key).update({status:'matched', driverName: document.getElementById('driverName').value || 'Driver'});
+          };
+          right.appendChild(acceptBtn);
+          div.appendChild(left); div.appendChild(right);
+          pendingList.appendChild(div);
+        } else {
+          const div = document.createElement('div');
+          div.className = 'list-item';
+          div.innerHTML = `<div><strong>${b.destName}</strong><div class="small">Students: ${b.studentNames?.join(', ')} | Status: ${b.status} | Driver: ${b.driverName || '—'}</div></div>`;
+          matchedList.appendChild(div);
+        }
+      });
+    });
+
+    // Admin simulate
+    document.getElementById('simulateRush').onclick = async function(){
+      const names = ['Ava','Ben','Cleo','Dev','Eli','Fay','Gus','Hana'];
+      for(let i=0;i<8;i++){
+        const destKey = i%2===0 ? 'tirupati' : 'railway';
+        const newBookingRef = db.ref('bookings').push();
+        const dest = destInfo[destKey];
+        const fare = 40 + 8*dest.km;
+        await newBookingRef.set({
+          id: newBookingRef.key,
+          studentNames: [names[i]],
+          destKey,
+          destName: dest.name,
+          km: dest.km,
+          pooling: true,
+          createdAt: Date.now(),
+          status: 'pending',
+          fareTotal: fare,
+          poolSize: 1
+        });
+      }
+    };
+    document.getElementById('simulateRain').onclick = async function(){
+      const names = ['Iris','Jay','Kim','Leo'];
+      for(let i=0;i<4;i++){
+        const destKey = 'mall';
+        const newBookingRef = db.ref('bookings').push();
+        const dest = destInfo[destKey];
+        const fare = 40 + 8*dest.km;
+        await newBookingRef.set({
+          id: newBookingRef.key,
+          studentNames: [names[i]],
+          destKey,
+          destName: dest.name,
+          km: dest.km,
+          pooling: true,
+          createdAt: Date.now(),
+          status: 'pending',
+          fareTotal: fare,
+          poolSize: 1
+        });
+      }
+    };
+
+    // Alerts list (for safety demo)
+    const alertsList = document.getElementById('alertsList');
+    db.ref('alerts').on('value', snap => {
+      alertsList.innerHTML = '';
+      snap.forEach(c => {
+        const a = c.val();
+        const d = document.createElement('div');
+        d.className = 'small';
+        d.innerText = `${a.type} — ${a.message} at ${new Date(a.ts).toLocaleTimeString()}`;
+        alertsList.appendChild(d);
+      });
+    });
+
+    // My rides button (student)
+    document.getElementById('myRidesBtn').onclick = function(){
+      alert('Open driver tab to see pending bookings or check the database. This demo uses simple UI.');
+    };
+
+    // Periodic pooling attempt (in case bookings come later)
+    setInterval(()=> {
+      // for each dest try pooling
+      Object.keys(destInfo).forEach(k => tryPooling(k));
+    }, 5000);
+
+  </script>
+</body>
+</html>
