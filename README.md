@@ -61,7 +61,3 @@ Auth (Planned) → Firebase Auth (Google sign-in).
 Arshia Nooraien Mohamad – Developer & Project Lead - arshiambu@gmail.com
 
 ⚡ UniRiders is built as a smart campus transport prototype — combining safety, affordability, and intelligence into one platform.
-
-Arshia Nooraien Mohamad – Developer & Project Lead
-
-⚡ UniRiders is built as a smart campus transport prototype — combining safety, affordability, and intelligence into one platform.
