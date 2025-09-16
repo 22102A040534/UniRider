@@ -40,11 +40,15 @@ Maps → Google Maps JavaScript API (Directions, Places, Layers).
 
 Chatbot → Custom voice/text UI (integrate with Dialogflow or Rasa).
 
-Realtime (Planned) → Socket.IO for live driver tracking + SOS push alerts.
+Realtime  → Socket.IO for live driver tracking + SOS push alerts.
 
-Backend (Planned) → Node.js + Express with PostgreSQL for persistence.
+Backend  → Node.js + Express with PostgreSQL for persistence.
 
-Auth (Planned) → Firebase Auth (Google sign-in).
+Auth  → Firebase Auth (Google sign-in).
+
+Custom APIs → Auth, Rides, Drivers, SOS, Chatbot, Admin.
+
+External APIs → Google Maps (Directions, Distance Matrix, Places), Twilio (SMS/Calls for SOS), Dialogflow (chatbot NLP).
 
 
 📊 Future Enhancements
